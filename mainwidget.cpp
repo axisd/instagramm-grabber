@@ -22,6 +22,10 @@ MainWidget::MainWidget(QWidget *parent) :
         dir.mkdir(imgDir);
     }
     loadLastTimestump();
+
+    ui->textEdit->setReadOnly(true);
+    ui->textEdit->setUndoRedoEnabled(false);
+    ui->textEdit->document()->setMaximumBlockCount(80);
 }
 
 MainWidget::~MainWidget()
