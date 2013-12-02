@@ -37,6 +37,13 @@ MainWidget::~MainWidget()
 
 void MainWidget::runParse(QByteArray __json)
 {
+    if(__json.size() == 47)
+    {
+        lastTimestamp-=1000;
+        ui->textEdit->append(QDateTime::currentDateTime().toString("dd-MM-yy hh:mm:ss").append(QString("Parsed datra is small")));
+        return;
+    }
+
     QJson::Parser parser;
     bool ok;
     ui->textEdit->append(QDateTime::currentDateTime().toString("dd-MM-yy hh:mm:ss").append(QString(" - Parse (%1)").arg(__json.size())));
@@ -57,9 +64,8 @@ void MainWidget::runParse(QByteArray __json)
     foreach(QVariant record, dataList)
     {
         QVariantMap map = record.toMap();
-        timeList.append(map.value("created_time").toLongLong());
 
-        if(map.value("created_time").toLongLong() != lastTimestamp)
+        if(map.value("created_time").toLongLong() > lastTimestamp)
         {
             QVariantMap img = map["images"].toMap();
             //ui->textEdit->append(img["standard_resolution"].toString());
@@ -69,13 +75,18 @@ void MainWidget::runParse(QByteArray __json)
 
             //getImage(img["standard_resolution"].toString());
             //ui->textEdit->append(img["standard_resolution"].toString());
+
+            timeList.append(map.value("created_time").toLongLong());
         }
     }
+
     if(timeList.size() > 0)
     {
         lastTimestamp = timeList.at(0);
+        saveLastTimestump();
     }
-    saveLastTimestump();
+
+    ui->textEdit->append("---END PARESE---\n\n\n");
 }
 
 void MainWidget::getImage(const QString __url)
@@ -95,7 +106,7 @@ void MainWidget::saveLastTimestump()
         ui->textEdit->append("Невозможно сохранить lastTimeSump");
         return;
     }
-    QDataStream st(&file);
+    QTextStream st(&file);
     st << lastTimestamp;
     file.close();
 }
@@ -109,7 +120,7 @@ void MainWidget::loadLastTimestump()
         ui->textEdit->append("Невозможно загрузить lastTimeSump");
         return;
     }
-    QDataStream st(&file);
+    QTextStream st(&file);
     long long temp;
     st >> temp;
     if(temp > 0)
@@ -171,12 +182,13 @@ void MainWidget::getJSON(const int __timestump)
     }
 
     QByteArray arr;
-    arr.append(QString("GET /v1/users/22252058/media/recent/?min_timestamp=%1&access_token=315332474.ab103e5.8b6cb34f9fce405cb430bf5fa7968190 HTTP/1.1\r\n"
+    arr.append(QString("GET /v1/users/22252058/media/recent?min_timestamp=%1&access_token=315332474.ab103e5.8b6cb34f9fce405cb430bf5fa7968190 HTTP/1.1\r\n"
                    "X-HostCommonName: api.instagram.com\r\n"
                    "Host: api.instagram.com\r\n"
                    "X-Target-URI: https://api.instagram.com\r\n"
                    "Connection: Keep-Alive\r\n\r\n").arg(__timestump));
 
+    //GET /v1/users/22252058/media/recent?access_token=315332474.1fb234f.ec19ec4d253c40e888c1e68c9ffe1d00 HTTP/1.1
     ui->textEdit->append(QDateTime::currentDateTime().toString("dd-MM-yy hh:mm:ss").append(" - ").append("GET"));
     socket->write(arr);
 
@@ -187,11 +199,11 @@ void MainWidget::getJSON(const int __timestump)
         data.append(socket->readAll());
         if(!data.contains("HTTP/1.1 200 OK"))
         {
-            ui->textEdit->append(QDateTime::currentDateTime().toString("dd-MM-yy hh:mm:ss").append(" - ").append(data.left(15)));
+            ui->textEdit->append(QDateTime::currentDateTime().toString("dd-MM-yy hh:mm:ss").append(" - ").append(data.left(data.indexOf("{"))));
             fail = true;
         }
     }
-    ui->textEdit->append(QDateTime::currentDateTime().toString("dd-MM-yy hh:mm:ss").append(" - ").append(data.left(15)));
+    ui->textEdit->append(QDateTime::currentDateTime().toString("dd-MM-yy hh:mm:ss").append(" - ").append(data.left(data.indexOf("{"))));
 
     if(fail)
     {
