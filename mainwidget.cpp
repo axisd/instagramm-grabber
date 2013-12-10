@@ -9,8 +9,11 @@ MainWidget::MainWidget(QWidget *parent) :
     ui->setupUi(this);
     connect(ui->pushButton,SIGNAL(clicked()),this,SLOT(runPr()));
 
-    m_manager = new QNetworkAccessManager(this);
-    connect(m_manager, SIGNAL(finished(QNetworkReply*)), this, SLOT(slot_netwManagerFinished(QNetworkReply*)));
+    m_manager_img = new QNetworkAccessManager(this);
+    connect(m_manager_img, SIGNAL(finished(QNetworkReply*)), this, SLOT(slot_netwManagerFinished4Img(QNetworkReply*)));
+
+    m_manager_video = new QNetworkAccessManager(this);
+    connect(m_manager_video, SIGNAL(finished(QNetworkReply*)), this, SLOT(slot_netwManagerFinished4Vid(QNetworkReply*)));
 
     socket = new QSslSocket(this);
     connect(this,SIGNAL(data4parse(QByteArray)),this,SLOT(runParse(QByteArray)));
@@ -30,7 +33,8 @@ MainWidget::MainWidget(QWidget *parent) :
 
 MainWidget::~MainWidget()
 {
-    delete m_manager;
+    delete m_manager_img;
+    delete m_manager_video;
     delete socket;
     delete ui;
 }
@@ -65,16 +69,23 @@ void MainWidget::runParse(QByteArray __json)
     {
         QVariantMap map = record.toMap();
 
-        if(map.value("created_time").toLongLong() > lastTimestamp)
+        if(map.value("created_time").toULongLong() > lastTimestamp)
         {
-            QVariantMap img = map["images"].toMap();
-            //ui->textEdit->append(img["standard_resolution"].toString());
-            QVariantMap img_std_rez_url = img["standard_resolution"].toMap();
-            getImage(img_std_rez_url.value("url").toString());
-            ui->textEdit->append(img_std_rez_url.value("url").toString());
+            if(map["type"].toString() == "image")
+            {
+                QVariantMap img = map["images"].toMap();
+                QVariantMap img_std_rez_url = img["standard_resolution"].toMap();
+                getImage(img_std_rez_url.value("url").toString());
+                ui->textEdit->append(img_std_rez_url.value("url").toString());
+            }
 
-            //getImage(img["standard_resolution"].toString());
-            //ui->textEdit->append(img["standard_resolution"].toString());
+            if(map["type"].toString() == "video")
+            {
+                QVariantMap video = map["videos"].toMap();
+                QVariantMap video_std_rez_url = video["standard_resolution"].toMap();
+                getVideo(video_std_rez_url.value("url").toString());
+                ui->textEdit->append(video_std_rez_url.value("url").toString());
+            }
 
             timeList.append(map.value("created_time").toLongLong());
         }
@@ -94,7 +105,15 @@ void MainWidget::getImage(const QString __url)
     QUrl url(__url);
 
     QNetworkRequest request(url);
-    m_manager->get(request);
+    m_manager_img->get(request);
+}
+
+void MainWidget::getVideo(const QString __url)
+{
+    QUrl url(__url);
+
+    QNetworkRequest request(url);
+    m_manager_video->get(request);
 }
 
 void MainWidget::saveLastTimestump()
@@ -131,7 +150,7 @@ void MainWidget::loadLastTimestump()
     ui->textEdit->append(QString("Last TS - %1").arg(lastTimestamp));
 }
 
-void MainWidget::slot_netwManagerFinished(QNetworkReply *reply)
+void MainWidget::slot_netwManagerFinished4Img(QNetworkReply *reply)
 {
     if (reply->error() != QNetworkReply::NoError) {
         ui->textEdit->append("Error in" + reply->url().toString() + ":" + reply->errorString());
@@ -152,6 +171,34 @@ void MainWidget::slot_netwManagerFinished(QNetworkReply *reply)
     QString imdi(imgDir);
 
     pixmap.save(imdi.append(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmsszzz")).append(".jpg"), "JPG");
+}
+
+void MainWidget::slot_netwManagerFinished4Vid(QNetworkReply *reply)
+{
+    if (reply->error() != QNetworkReply::NoError) {
+        ui->textEdit->append("Error in" + reply->url().toString() + ":" + reply->errorString());
+        return;
+    }
+    QVariant attribute = reply->attribute(QNetworkRequest::RedirectionTargetAttribute);
+    if (attribute.isValid()) {
+        QUrl url = attribute.toUrl();
+        ui->textEdit->append("must go to:" + url.toString());
+        return;
+    }
+    ui->textEdit->append("ContentType:" + reply->header(QNetworkRequest::ContentTypeHeader).toString());
+    QString vidi(imgDir);
+
+    QFile file(vidi.append(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmsszzz")).append(".mp4"));
+    if (!file.open(QIODevice::WriteOnly))
+    {
+        ui->textEdit->append(QString("Could not open %1 for writing: %2")
+                             .arg(vidi)
+                             .arg(file.errorString())
+                             );
+        return;
+    }
+    file.write(reply->readAll());
+    file.close();
 }
 
 void MainWidget::connectInstgrm()

@@ -29,11 +29,13 @@ private:
     Ui::MainWidget *ui;
     quint64 lastTimestamp;
     QByteArray readFile(const QString __filename);
-    QNetworkAccessManager *m_manager;
+    QNetworkAccessManager *m_manager_img;
+    QNetworkAccessManager *m_manager_video;
 
     QSslSocket *socket;
 
     void getImage(const QString __url);
+    void getVideo(const QString __url);
     void saveLastTimestump();
     void loadLastTimestump();
     QString imgDir;
@@ -41,7 +43,8 @@ private:
 
 public slots:
     void runParse(QByteArray __json);
-    void slot_netwManagerFinished(QNetworkReply *);
+    void slot_netwManagerFinished4Img(QNetworkReply *);
+    void slot_netwManagerFinished4Vid(QNetworkReply *);
 
     void connectInstgrm();
     void getJSON(const int __timestump);
