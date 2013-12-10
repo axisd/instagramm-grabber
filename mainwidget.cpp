@@ -4,16 +4,14 @@
 MainWidget::MainWidget(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::MainWidget),
-    lastTimestamp(0)
+    lastTimestamp(0),
+    id(0)
 {
     ui->setupUi(this);
     connect(ui->pushButton,SIGNAL(clicked()),this,SLOT(runPr()));
 
-    m_manager_img = new QNetworkAccessManager(this);
-    connect(m_manager_img, SIGNAL(finished(QNetworkReply*)), this, SLOT(slot_netwManagerFinished4Img(QNetworkReply*)));
-
-    m_manager_video = new QNetworkAccessManager(this);
-    connect(m_manager_video, SIGNAL(finished(QNetworkReply*)), this, SLOT(slot_netwManagerFinished4Vid(QNetworkReply*)));
+    m_manager = new QNetworkAccessManager(this);
+    connect(m_manager, SIGNAL(finished(QNetworkReply*)), this, SLOT(slot_netwManagerFinished(QNetworkReply*)));
 
     socket = new QSslSocket(this);
     connect(this,SIGNAL(data4parse(QByteArray)),this,SLOT(runParse(QByteArray)));
@@ -25,6 +23,7 @@ MainWidget::MainWidget(QWidget *parent) :
         dir.mkdir(imgDir);
     }
     loadLastTimestump();
+    loadId();
 
     ui->textEdit->setReadOnly(true);
     ui->textEdit->setUndoRedoEnabled(false);
@@ -33,8 +32,7 @@ MainWidget::MainWidget(QWidget *parent) :
 
 MainWidget::~MainWidget()
 {
-    delete m_manager_img;
-    delete m_manager_video;
+    delete m_manager;
     delete socket;
     delete ui;
 }
@@ -44,7 +42,7 @@ void MainWidget::runParse(QByteArray __json)
     if(__json.size() == 47)
     {
         lastTimestamp-=1000;
-        ui->textEdit->append(QDateTime::currentDateTime().toString("dd-MM-yy hh:mm:ss").append(QString("Parsed datra is small")));
+        ui->textEdit->append(QDateTime::currentDateTime().toString("dd-MM-yy hh:mm:ss").append(QString(" - Parsed data is small")));
         return;
     }
 
@@ -64,56 +62,56 @@ void MainWidget::runParse(QByteArray __json)
 
     QVariantList dataList = result["data"].toList();
     QList<quint64> timeList;
+    QStringList idList;
 
     foreach(QVariant record, dataList)
     {
         QVariantMap map = record.toMap();
 
-        if(map.value("created_time").toULongLong() > lastTimestamp)
+        if(checkId(map.value("id").toString()))
         {
+            QVariantMap file;
+            QVariantMap file_std_rez_url;
+
             if(map["type"].toString() == "image")
             {
-                QVariantMap img = map["images"].toMap();
-                QVariantMap img_std_rez_url = img["standard_resolution"].toMap();
-                getImage(img_std_rez_url.value("url").toString());
-                ui->textEdit->append(img_std_rez_url.value("url").toString());
+                file = map["images"].toMap();
+                file_std_rez_url = file["standard_resolution"].toMap();
             }
 
             if(map["type"].toString() == "video")
             {
-                QVariantMap video = map["videos"].toMap();
-                QVariantMap video_std_rez_url = video["standard_resolution"].toMap();
-                getVideo(video_std_rez_url.value("url").toString());
-                ui->textEdit->append(video_std_rez_url.value("url").toString());
+                file = map["videos"].toMap();
+                file_std_rez_url = file["standard_resolution"].toMap();
             }
 
-            timeList.append(map.value("created_time").toLongLong());
+            getFile(file_std_rez_url.value("url").toString());
+            ui->textEdit->append(file_std_rez_url.value("url").toString());
+
+            idList.append(map.value("id").toString());
         }
     }
 
-    if(timeList.size() > 0)
+    if(idList.size() > 0)
     {
-        lastTimestamp = timeList.at(0);
-        saveLastTimestump();
+        QStringList list = idList.at(0).split("_");
+        if(list.size() == 2)
+        {
+            id = list.at(0).toULongLong();
+        }
+
+        saveId();
     }
 
     ui->textEdit->append("---END PARESE---\n\n\n");
 }
 
-void MainWidget::getImage(const QString __url)
+void MainWidget::getFile(const QString &__url)
 {
     QUrl url(__url);
 
     QNetworkRequest request(url);
-    m_manager_img->get(request);
-}
-
-void MainWidget::getVideo(const QString __url)
-{
-    QUrl url(__url);
-
-    QNetworkRequest request(url);
-    m_manager_video->get(request);
+    m_manager->get(request);
 }
 
 void MainWidget::saveLastTimestump()
@@ -150,30 +148,58 @@ void MainWidget::loadLastTimestump()
     ui->textEdit->append(QString("Last TS - %1").arg(lastTimestamp));
 }
 
-void MainWidget::slot_netwManagerFinished4Img(QNetworkReply *reply)
+bool MainWidget::checkId(const QString &__id)
 {
-    if (reply->error() != QNetworkReply::NoError) {
-        ui->textEdit->append("Error in" + reply->url().toString() + ":" + reply->errorString());
-        return;
+    QStringList list = __id.split("_");
+    quint64 temp;
+    if(list.size() == 2)
+    {
+        temp = list.at(0).toULongLong();
+        if(temp > id)
+        {
+            return true;
+        }
     }
-    QVariant attribute = reply->attribute(QNetworkRequest::RedirectionTargetAttribute);
-    if (attribute.isValid()) {
-        QUrl url = attribute.toUrl();
-        ui->textEdit->append("must go to:" + url.toString());
-        return;
-    }
-    ui->textEdit->append("ContentType:" + reply->header(QNetworkRequest::ContentTypeHeader).toString());
-    QByteArray jpegData = reply->readAll();
 
-    QPixmap pixmap;
-    pixmap.loadFromData(jpegData);
-
-    QString imdi(imgDir);
-
-    pixmap.save(imdi.append(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmsszzz")).append(".jpg"), "JPG");
+    return false;
 }
 
-void MainWidget::slot_netwManagerFinished4Vid(QNetworkReply *reply)
+void MainWidget::saveId()
+{
+    QString fileName(qApp->applicationDirPath().append(QDir::separator()).append("lastId.txt"));
+    QFile file(fileName);
+    if(!file.open(QIODevice::WriteOnly))
+    {
+        ui->textEdit->append("Невозможно сохранить Id");
+        return;
+    }
+    QTextStream st(&file);
+    st << id;
+    file.close();
+}
+
+void MainWidget::loadId()
+{
+    QString fileName(qApp->applicationDirPath().append(QDir::separator()).append("lastId.txt"));
+    QFile file(fileName);
+    if(!file.open(QIODevice::ReadOnly))
+    {
+        ui->textEdit->append("Невозможно загрузить Id");
+        return;
+    }
+
+    QTextStream st(&file);
+    quint64 temp;
+    st >> temp;
+    if(temp > 0)
+    {
+        id = temp;
+    }
+    file.close();
+    ui->textEdit->append(QString("Last Id - %1").arg(id));
+}
+
+void MainWidget::slot_netwManagerFinished(QNetworkReply *reply)
 {
     if (reply->error() != QNetworkReply::NoError) {
         ui->textEdit->append("Error in" + reply->url().toString() + ":" + reply->errorString());
@@ -187,8 +213,19 @@ void MainWidget::slot_netwManagerFinished4Vid(QNetworkReply *reply)
     }
     ui->textEdit->append("ContentType:" + reply->header(QNetworkRequest::ContentTypeHeader).toString());
     QString vidi(imgDir);
+    QString ext;
 
-    QFile file(vidi.append(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmsszzz")).append(".mp4"));
+    if(reply->header(QNetworkRequest::ContentTypeHeader).toString() == "video/mp4")
+    {
+        ext.append(".mp4");
+    }
+
+    if(reply->header(QNetworkRequest::ContentTypeHeader).toString() == "image/jpeg")
+    {
+        ext.append(".jpg");
+    }
+
+    QFile file(vidi.append(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmsszzz")).append(ext));
     if (!file.open(QIODevice::WriteOnly))
     {
         ui->textEdit->append(QString("Could not open %1 for writing: %2")
@@ -220,7 +257,7 @@ void MainWidget::connectInstgrm()
     }
 }
 
-void MainWidget::getJSON(const int __timestump)
+void MainWidget::getJSON()
 {
     if(socket->state() != QSslSocket::ConnectedState)
     {
@@ -229,14 +266,27 @@ void MainWidget::getJSON(const int __timestump)
     }
 
     QByteArray arr;
-    arr.append(QString("GET /v1/users/22252058/media/recent?min_timestamp=%1&access_token=315332474.ab103e5.8b6cb34f9fce405cb430bf5fa7968190 HTTP/1.1\r\n"
-                   "X-HostCommonName: api.instagram.com\r\n"
-                   "Host: api.instagram.com\r\n"
-                   "X-Target-URI: https://api.instagram.com\r\n"
-                   "Connection: Keep-Alive\r\n\r\n").arg(__timestump));
+    if(id == 0)
+    {
+        arr.append(QString("GET /v1/users/self/feed?access_token=315332474.ab103e5.8b6cb34f9fce405cb430bf5fa7968190 HTTP/1.1\r\n"
+                       "X-HostCommonName: api.instagram.com\r\n"
+                       "Host: api.instagram.com\r\n"
+                       "X-Target-URI: https://api.instagram.com\r\n"
+                       "Connection: Keep-Alive\r\n\r\n")
+                   );
+    }
+    else
+    {
+        arr.append(QString("GET /v1/users/self/feed?min_id=%1&access_token=315332474.ab103e5.8b6cb34f9fce405cb430bf5fa7968190 HTTP/1.1\r\n"
+                       "X-HostCommonName: api.instagram.com\r\n"
+                       "Host: api.instagram.com\r\n"
+                       "X-Target-URI: https://api.instagram.com\r\n"
+                       "Connection: Keep-Alive\r\n\r\n")
+                   .arg(id)
+                   );
+    }
 
-    //GET /v1/users/22252058/media/recent?access_token=315332474.1fb234f.ec19ec4d253c40e888c1e68c9ffe1d00 HTTP/1.1
-    ui->textEdit->append(QDateTime::currentDateTime().toString("dd-MM-yy hh:mm:ss").append(" - ").append("GET"));
+    ui->textEdit->append(QDateTime::currentDateTime().toString("dd-MM-yy hh:mm:ss").append(" - ").append(arr));
     socket->write(arr);
 
     bool fail = false;
@@ -271,7 +321,7 @@ void MainWidget::getJSON(const int __timestump)
 void MainWidget::runPr()
 {
     connectInstgrm();
-    getJSON(lastTimestamp);
+    getJSON();
     timer = new QTimer(this);
     connect(timer, SIGNAL(timeout()), this, SLOT(upp()));
     timer->start(30000);
@@ -279,5 +329,5 @@ void MainWidget::runPr()
 
 void MainWidget::upp()
 {
-    getJSON(lastTimestamp);
+    getJSON();
 }
